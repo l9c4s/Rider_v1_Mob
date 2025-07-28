@@ -9,7 +9,7 @@ class ApiService {
       : _storageService = storageService,
         _dio = Dio(
           BaseOptions(
-            baseUrl: 'http://10.0.2.2:5092/', // A URL 
+            baseUrl: 'http://192.168.1.80:5092', // A URL 
             connectTimeout: const Duration(seconds: 10),
             receiveTimeout: const Duration(seconds: 10),
           ),

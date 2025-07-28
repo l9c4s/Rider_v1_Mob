@@ -3,7 +3,7 @@ import 'package:riders/routing/app_routes.dart';
 import 'package:riders/ui/Login/widgets/login_screen.dart';
 import 'package:riders/ui/Login/widgets/register_screen.dart';
 import 'package:riders/ui/SplashView/widgets/splashview_screen.dart';
-import 'package:riders/ui/home/widgets/homeview_screen.dart';
+import 'package:riders/ui/home/widgets/HomeScreen.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: AppRoutes.splashPath,
@@ -27,7 +27,7 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const RegisterScreen(),
     ),
 
-    GoRoute(
+      GoRoute(
       name: AppRoutes.home,
       path: AppRoutes.homePath,
       builder: (context, state) => const HomeScreen(),

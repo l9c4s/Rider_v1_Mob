@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:riders/config/dependencies.dart';
-import 'package:riders/data/services/locations/LocationService.dart';
 import 'package:riders/routing/go_router.dart';
 import 'package:riders/ui/core/themes/theme.dart';
 
@@ -25,21 +24,14 @@ class MyApp extends StatefulWidget {
 
 
 class _MyAppState extends State<MyApp> {
-  bool? _hasLocationPermission;
+  bool? _hasLocationPermission = true;
 
   @override
   void initState() {
     super.initState();
-    _checkPermission();
   }
 
-  Future<void> _checkPermission() async {
-    final locationService = Provider.of<LocationService>(context, listen: false);
-    final hasPermission = await locationService.checkLocationPermission();
-    setState(() {
-      _hasLocationPermission = hasPermission;
-    });
-  }
+
 
   @override
   Widget build(BuildContext context) {

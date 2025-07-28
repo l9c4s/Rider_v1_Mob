@@ -1,94 +1,120 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:riders/data/services/LocationManagerService/LocationManagerService.dart';
-import 'package:riders/data/services/locations/LocationService.dart';
+import 'package:riders/data/repositories/LocationsRepository/LocationRepository.dart';
+import 'package:riders/data/services/LocationService/LocationService.dart';
 import 'package:riders/data/services/signalr/signalr_service.dart';
 import 'package:riders/data/services/storage/storage_service.dart';
 import 'package:riders/domain/models/locations/LocationUpdate.dart';
-import 'package:riders/utils/command.dart';
-import 'package:riders/utils/result.dart';
 
 class HomeViewModel extends ChangeNotifier {
+  final LocationService _locationService;
+  final LocationRepository _locationRepository;
   final SignalRService _signalRService;
   final StorageService _storageService;
-  final LocationService _locationService;
-  final LocationManagerService _locationManagerService;
 
-  late LatLng? _currentUserPosition;
-  LatLng? get currentUserPosition => _currentUserPosition;
+  StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription? _signalRSubscription;
 
-  List<LocationUpdate> _visibleFriends = [];
-  LatLngBounds? _currentBounds;
+  final Map<String, Marker> _markers = {};
+  Map<String, Marker> get markers => _markers;
 
-  late final Command1<void, LocationUpdate> updateLocationCommand;
-  late final Command1<void, LatLng> updateCurrentUserPositionCommand;
+  Timer? _debounce;
 
-  List<LocationUpdate> get visibleFriends => _visibleFriends;
+  CameraPosition? _initialCameraPosition;
+  CameraPosition? get initialCameraPosition => _initialCameraPosition;
 
-  HomeViewModel(
-    this._signalRService,
-    this._storageService,
-    this._locationService,
-    this._locationManagerService,
-  ) {
-    _locationManagerService.addListener(_onLocationUpdated);
+  HomeViewModel({
+    required LocationService locationService,
+    required LocationRepository locationRepository,
+    required SignalRService signalRService,
+    required StorageService storageService,
+  }) : _locationService = locationService,
+       _locationRepository = locationRepository,
+       _signalRService = signalRService,
+       _storageService = storageService {
+    loadInitialData();
+  }
 
-    // Command para localização do usuário atual
-    updateCurrentUserPositionCommand = Command1<void, LatLng>((pos) async {
-      _currentUserPosition = pos;
-      await _locationService.sendLocationToApi(pos);
-      return Result.ok(true);
+  Future<void> loadInitialData() async {
+    await _connectToSignalR();
+    await _getCurrentLocationAndStartStreaming();
+  }
+
+  Future<void> _getCurrentLocationAndStartStreaming() async {
+    try {
+      final position = await _locationService.getCurrentPosition();
+      _updateUserMarker(position);
+      _initialCameraPosition = CameraPosition(
+        target: LatLng(position.latitude, position.longitude),
+        zoom: 16,
+      );
+      notifyListeners();
+
+      _positionSubscription = _locationService.getPositionStream().listen((
+        position,
+      ) {
+        _updateUserMarker(position);
+        // Enviar atualização para a API
+        final locationUpdate = LocationUpdate(
+          userId: "currentUserId", // Obtenha o ID do usuário logado
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestamp: DateTime.now(),
+        );
+        _locationRepository.updateUserLocation(locationUpdate);
+      });
+    } catch (e) {
+      // Tratar erro (ex: permissão negada)
+      print(e);
+    }
+  }
+
+  Future<void> _connectToSignalR() async {
+    String? Token = await _storageService.getAccessToken();
+    if (Token == null) {
+      throw Exception("Access token is required to connect to SignalR");
+    }
+    await _signalRService.connect(Token, (locationUpdate) {
+      _updateRiderMarker(locationUpdate);
     });
-
-    _locationService.onLocationChanged.listen((pos) {
-      updateCurrentUserPositionCommand.execute(pos);
-    });
-
-    updateLocationCommand = Command1<void, LocationUpdate>((location) async {
-      _locationManagerService.updateLocation(location);
-      return Result.ok(true);
-    });
   }
 
-  // Callback para quando o LocationManagerService notificar mudanças
-  void _onLocationUpdated() {
-    _updateVisibleFriends();
-  }
-
-  Future<void> init() async {
-     _currentUserPosition = await _locationService.getCurrentLocation();
-  }
-
-
-  Future<void> connectToHub() async {
-    final token = await _storageService.getAccessToken();
-    if (token == null) return;
-    await _signalRService.connect(token, (location) {
-      updateLocationCommand.execute(location);
-    });
-  }
-
-  void updateMapBounds(LatLngBounds bounds) {
-    _currentBounds = bounds;
-    _updateVisibleFriends();
-  }
-
-  void _updateVisibleFriends() {
-    if (_currentBounds == null) return;
-
-    _visibleFriends = _locationManagerService.getVisibleLocations(
-      _currentBounds,
+  void _updateUserMarker(Position position) {
+    final marker = Marker(
+      markerId: const MarkerId('currentUser'),
+      position: LatLng(position.latitude, position.longitude),
+      infoWindow: const InfoWindow(title: 'Você'),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
     );
-    notifyListeners(); // Notifica a UI (HomeScreen) que o estado mudou
+    _markers['currentUser'] = marker;
+    notifyListeners(); // Voltamos a usar notifyListeners
+  }
+
+  void _updateRiderMarker(LocationUpdate location) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      final riderId = location.userId;
+      final newPosition = LatLng(location.latitude, location.longitude);
+      final marker = Marker(
+        markerId: MarkerId(riderId),
+        position: newPosition,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: InfoWindow(title: 'Rider $riderId'),
+        anchor: const Offset(0.5, 0.5),
+      );
+
+      _markers[riderId] = marker;
+      notifyListeners();
+    });
   }
 
   @override
   void dispose() {
-    _locationManagerService.removeListener(_onLocationUpdated);
+    _positionSubscription?.cancel();
+    _signalRService.disconnect();
     super.dispose();
-  }
-
-  Future<void> disconnect() async {
-    await _signalRService.disconnect();
   }
 }

@@ -9,7 +9,7 @@ class SignalRService {
   Future<void> connect(String token, void Function(LocationUpdate) onLocation) async {
     _connection = HubConnectionBuilder()
         .withUrl(
-          'http://10.0.2.2:5092/locationHub?access_token=$token',
+          'http://192.168.1.80:5092/locationHub?access_token=$token',
           options: HttpConnectionOptions(
             transport: HttpTransportType.WebSockets,
           ),
